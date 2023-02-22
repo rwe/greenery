@@ -7,20 +7,53 @@ from __future__ import annotations
 __all__ = (
     "ANYTHING_ELSE",
     "Fsm",
-    "alphabet_key",
+    "alpha_type",
     "epsilon",
     "null",
+    "state_type",
 )
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Set, Union
+from enum import Enum, auto
+from functools import total_ordering
+from typing import Any, Union
 
-ANYTHING_ELSE = '9bd74361-04f9-4742-9d3a-1d14a6f0044c'
+
+@total_ordering
+class AnythingElse(Enum):
+    '''
+        This is a surrogate symbol which you can use in your finite state
+        machines to represent "any symbol not in the official alphabet". For
+        example, if your state machine's alphabet is `{"a", "b", "c", "d",
+        fsm.ANYTHING_ELSE}`, then if "e" is passed as a symbol, it will be
+        converted to `fsm.ANYTHING_ELSE` before following the appropriate
+        transition.
+
+        This is an `Enum` to enforce a singleton value, detectable by type
+        checkers, as described in:
+        https://www.python.org/dev/peps/pep-0484/#support-for-singleton-types-in-unions
+    '''
+
+    TOKEN = auto()
+
+    def __lt__(self, _: Any, /) -> bool:
+        '''Ensure `fsm.ANYTHING_ELSE` always sorts last'''
+        return False
+
+    def __eq__(self, other: Any, /) -> bool:
+        return self is other
+
+    def __hash__(self, /) -> int:
+        return hash(type(self))
+
+    def __str__(self, /) -> str:
+        return 'ANYTHING_ELSE'
+
+    def __repr__(self, /) -> str:
+        return 'ANYTHING_ELSE'
 
 
-def alphabet_key(symbol):
-    '''Ensure `ANYTHING_ELSE` always sorts last'''
-    return (symbol is ANYTHING_ELSE, symbol)
+ANYTHING_ELSE = AnythingElse.TOKEN
 
 
 class OblivionError(Exception):
@@ -34,7 +67,10 @@ class OblivionError(Exception):
     pass
 
 
-state_type = Optional[Union[int, str]]
+alpha_type = Union[str, AnythingElse]
+
+
+state_type = Union[int, str, None]
 
 
 @dataclass(frozen=True)
@@ -53,10 +89,10 @@ class Fsm:
         The majority of these methods are available using operator overloads.
     '''
     initial: state_type
-    finals: Set[state_type]
-    alphabet: Set[str]
-    states: Set[state_type]
-    map: Dict[state_type, Dict[str, state_type]]
+    finals: set[state_type]
+    alphabet: set[alpha_type]
+    states: set[state_type]
+    map: dict[state_type, dict[alpha_type, state_type]]
 
     def __post_init__(self):
         '''
@@ -80,7 +116,7 @@ class Fsm:
                 f"Final states {repr(self.finals)} "
                 f"must be a subset of {repr(self.states)}"
             )
-        for state, symbol in self.map.items():
+        for state, _state_trans in self.map.items():
             if state not in self.states:
                 raise Exception(f"Transition from unknown state {repr(state)}")
             for symbol in self.map[state]:
@@ -152,14 +188,11 @@ class Fsm:
     def __str__(self):
         rows = []
 
-        sorted_alphabet = sorted(self.alphabet, key=alphabet_key)
+        sorted_alphabet = sorted(self.alphabet)
 
         # top row
         row = ["", "name", "final?"]
-        row.extend(
-          'ANYTHING_ELSE' if symbol is ANYTHING_ELSE else str(symbol)
-          for symbol in sorted_alphabet
-        )
+        row.extend(str(symbol) for symbol in sorted_alphabet)
         rows.append(row)
 
         # other rows
@@ -531,7 +564,7 @@ class Fsm:
         while i < len(strings):
             (cstring, cstate) = strings[i]
             if cstate in self.map:
-                for symbol in sorted(self.map[cstate], key=alphabet_key):
+                for symbol in sorted(self.map[cstate]):
                     nstate = self.map[cstate][symbol]
                     nstring = cstring + [symbol]
                     if nstate in livestates:
@@ -840,7 +873,7 @@ def crawl(alphabet, initial, final, follow):
 
         # compute map for this state
         map[i] = {}
-        for symbol in sorted(alphabet, key=alphabet_key):
+        for symbol in sorted(alphabet):
             try:
                 next = follow(state, symbol)
 
